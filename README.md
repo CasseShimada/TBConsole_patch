@@ -4,9 +4,10 @@
 
 默认行为：
 
-- 当 `CLIPStudioPaint.exe` 正在前台并且你 60 秒没有操作键盘/鼠标时，重启 TourBox Console。
-- 当你曾经切到 Clip Studio Paint，之后 Clip Studio Paint 失去焦点超过 5 秒时，重启 TourBox Console。
-- 同一次空闲或同一次失去焦点只会触发一次重启；恢复输入或重新切回 Clip Studio Paint 后，才允许下一次触发。
+- 当 `CLIPStudioPaint.exe` 正在前台并且你 60 秒没有操作键盘/鼠标时，关闭 TourBox Console。
+- 当你曾经切到 Clip Studio Paint，之后 Clip Studio Paint 失去焦点超过 5 秒时，关闭 TourBox Console。
+- 当你重新切回 Clip Studio Paint 并恢复键盘/鼠标操作后，再启动 TourBox Console。
+- 启动 TourBox Console 后会自动最小化到任务栏。
 
 ## 生成程序
 
@@ -56,13 +57,13 @@ ClipStudioPath=C:\Program Files\CELSYS\CLIP STUDIO 1.5\CLIP STUDIO PAINT\CLIPStu
 IdleSeconds=60
 FocusLostDelaySeconds=5
 PollIntervalMs=1000
-RestartOnIdle=True
-RestartOnFocusLost=True
-MinimizeTourBoxAfterRestart=True
+StopOnIdle=True
+StopOnFocusLost=True
+MinimizeTourBoxAfterStart=True
 LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
 
-`MinimizeTourBoxAfterRestart=True` 表示工具重启 TourBox Console 后，会自动把 TourBox Console 窗口最小化到任务栏。
+`MinimizeTourBoxAfterStart=True` 表示工具启动 TourBox Console 后，会自动把 TourBox Console 窗口最小化到任务栏。
 
 修改配置后，需要退出并重新打开 `TourBoxConsolePatch.exe`。
 
@@ -88,4 +89,4 @@ LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 dist\TourBoxConsolePatch.exe
 ```
 
-此工具不会联网，不会注入进程，不会扫描其他目录；它只会读取当前前台窗口、读取系统空闲时间，并在条件满足时重启配置里的 TourBox Console。
+此工具不会联网，不会注入进程，不会扫描其他目录；它只会读取当前前台窗口、读取系统空闲时间，并在条件满足时关闭或启动配置里的 TourBox Console。

@@ -49,6 +49,8 @@ namespace TourBoxConsolePatch
 
             var menu = new ContextMenuStrip();
             menu.Items.Add("立即重启 TourBox Console", null, delegate { _worker.RestartTourBox("manual tray action"); });
+            menu.Items.Add("启动 TourBox Console", null, delegate { _worker.StartTourBox("manual tray action"); });
+            menu.Items.Add("关闭 TourBox Console", null, delegate { _worker.StopTourBox("manual tray action", false); });
             menu.Items.Add("打开配置文件", null, delegate { OpenPath(_config.ConfigFilePath); });
             menu.Items.Add("打开日志", null, delegate { OpenPath(_config.LogFilePath); });
             menu.Items.Add(new ToolStripSeparator());
@@ -64,7 +66,7 @@ namespace TourBoxConsolePatch
 
             _notifyIcon.DoubleClick += delegate { OpenPath(_config.ConfigFilePath); };
             _notifyIcon.ShowBalloonTip(2500, "TourBox Console Patch",
-                "正在监控 Clip Studio Paint，并会按配置重启 TourBox Console。", ToolTipIcon.Info);
+                "正在监控 Clip Studio Paint，并会按配置暂停/恢复 TourBox Console。", ToolTipIcon.Info);
 
             _worker.Start();
         }
@@ -101,9 +103,9 @@ namespace TourBoxConsolePatch
         private readonly System.Threading.Timer _timer;
         private DateTime? _focusLostSinceUtc;
         private bool _clipStudioSessionActive;
-        private bool _idleTriggeredForEpisode;
-        private bool _focusLostTriggeredForEpisode;
+        private bool _tourBoxPausedByPatch;
         private bool _disposed;
+        private int _tickRunning;
 
         public MonitorWorker(AppConfig config)
         {
@@ -129,6 +131,11 @@ namespace TourBoxConsolePatch
                 return;
             }
 
+            if (Interlocked.Exchange(ref _tickRunning, 1) == 1)
+            {
+                return;
+            }
+
             try
             {
                 if (!File.Exists(_config.ClipStudioPath))
@@ -150,28 +157,27 @@ namespace TourBoxConsolePatch
                 {
                     _clipStudioSessionActive = true;
                     _focusLostSinceUtc = null;
-                    _focusLostTriggeredForEpisode = false;
 
                     var idleSeconds = NativeMethods.GetSystemIdleTime().TotalSeconds;
-                    if (idleSeconds < Math.Max(1, _config.IdleSeconds))
+                    if (_tourBoxPausedByPatch)
                     {
-                        _idleTriggeredForEpisode = false;
+                        if (idleSeconds < Math.Max(1, _config.IdleSeconds))
+                        {
+                            StartTourBox("Clip Studio Paint activity resumed");
+                        }
+
+                        return;
                     }
 
-                    if (_config.RestartOnIdle &&
-                        !_idleTriggeredForEpisode &&
-                        idleSeconds >= Math.Max(1, _config.IdleSeconds))
+                    if (_config.StopOnIdle && idleSeconds >= Math.Max(1, _config.IdleSeconds))
                     {
-                        _idleTriggeredForEpisode = true;
-                        RestartTourBox("Clip Studio Paint idle for " + (int)idleSeconds + " seconds");
+                        StopTourBox("Clip Studio Paint idle for " + (int)idleSeconds + " seconds", true);
                     }
 
                     return;
                 }
 
-                _idleTriggeredForEpisode = false;
-
-                if (_config.RestartOnFocusLost && _clipStudioSessionActive && !_focusLostTriggeredForEpisode)
+                if (!_tourBoxPausedByPatch && _config.StopOnFocusLost && _clipStudioSessionActive)
                 {
                     if (!_focusLostSinceUtc.HasValue)
                     {
@@ -181,8 +187,7 @@ namespace TourBoxConsolePatch
                     var lostSeconds = (DateTime.UtcNow - _focusLostSinceUtc.Value).TotalSeconds;
                     if (lostSeconds >= Math.Max(0, _config.FocusLostDelaySeconds))
                     {
-                        _focusLostTriggeredForEpisode = true;
-                        RestartTourBox("Clip Studio Paint lost focus for " + (int)lostSeconds + " seconds");
+                        StopTourBox("Clip Studio Paint lost focus for " + (int)lostSeconds + " seconds", true);
                         _focusLostSinceUtc = null;
                     }
                 }
@@ -191,9 +196,58 @@ namespace TourBoxConsolePatch
             {
                 Logger.Write("Monitor error: " + ex);
             }
+            finally
+            {
+                Interlocked.Exchange(ref _tickRunning, 0);
+            }
         }
 
         public void RestartTourBox(string reason)
+        {
+            try
+            {
+                StopTourBox(reason, false);
+                StartTourBox(reason);
+            }
+            catch (Exception ex)
+            {
+                Logger.Write("Restart failed: " + ex);
+            }
+        }
+
+        public bool StopTourBox(string reason, bool resumeOnActivity)
+        {
+            try
+            {
+                var stoppedAny = false;
+                Logger.Write("Stopping TourBox Console. Reason: " + reason);
+
+                foreach (var process in FindProcessesByPath(_config.TourBoxPath))
+                {
+                    stoppedAny = true;
+                    StopProcess(process);
+                }
+
+                if (stoppedAny && resumeOnActivity)
+                {
+                    _tourBoxPausedByPatch = true;
+                    Logger.Write("TourBox Console paused until Clip Studio Paint activity resumes.");
+                }
+                else if (!stoppedAny)
+                {
+                    Logger.Write("TourBox Console was not running.");
+                }
+
+                return stoppedAny;
+            }
+            catch (Exception ex)
+            {
+                Logger.Write("Stop failed: " + ex);
+                return false;
+            }
+        }
+
+        public void StartTourBox(string reason)
         {
             try
             {
@@ -203,12 +257,14 @@ namespace TourBoxConsolePatch
                     return;
                 }
 
-                Logger.Write("Restarting TourBox Console. Reason: " + reason);
-
-                foreach (var process in FindProcessesByPath(_config.TourBoxPath))
+                if (IsProcessRunningFromPath(_config.TourBoxPath))
                 {
-                    StopProcess(process);
+                    _tourBoxPausedByPatch = false;
+                    Logger.Write("TourBox Console already running. Reason: " + reason);
+                    return;
                 }
+
+                Logger.Write("Starting TourBox Console. Reason: " + reason);
 
                 var startedProcess = Process.Start(new ProcessStartInfo
                 {
@@ -217,16 +273,17 @@ namespace TourBoxConsolePatch
                     UseShellExecute = true
                 });
 
+                _tourBoxPausedByPatch = false;
                 Logger.Write("TourBox Console launched.");
 
-                if (_config.MinimizeTourBoxAfterRestart)
+                if (_config.MinimizeTourBoxAfterStart)
                 {
                     MinimizeTourBoxWhenReady(startedProcess);
                 }
             }
             catch (Exception ex)
             {
-                Logger.Write("Restart failed: " + ex);
+                Logger.Write("Start failed: " + ex);
             }
         }
 
@@ -247,7 +304,7 @@ namespace TourBoxConsolePatch
                                 if (process.MainWindowHandle != IntPtr.Zero)
                                 {
                                     NativeMethods.MinimizeWindow(process.MainWindowHandle);
-                                    Logger.Write("TourBox Console minimized after restart.");
+                                    Logger.Write("TourBox Console minimized after start.");
                                     return;
                                 }
                             }
@@ -293,8 +350,6 @@ namespace TourBoxConsolePatch
         {
             _clipStudioSessionActive = false;
             _focusLostSinceUtc = null;
-            _idleTriggeredForEpisode = false;
-            _focusLostTriggeredForEpisode = false;
         }
 
         private static bool IsProcessRunningFromPath(string expectedPath)
@@ -394,9 +449,9 @@ namespace TourBoxConsolePatch
         public int IdleSeconds { get; private set; }
         public int FocusLostDelaySeconds { get; private set; }
         public int PollIntervalMs { get; private set; }
-        public bool RestartOnIdle { get; private set; }
-        public bool RestartOnFocusLost { get; private set; }
-        public bool MinimizeTourBoxAfterRestart { get; private set; }
+        public bool StopOnIdle { get; private set; }
+        public bool StopOnFocusLost { get; private set; }
+        public bool MinimizeTourBoxAfterStart { get; private set; }
         public string ConfigFilePath { get; private set; }
         public string LogFilePath { get; private set; }
 
@@ -451,9 +506,9 @@ namespace TourBoxConsolePatch
                 IdleSeconds = 60,
                 FocusLostDelaySeconds = 5,
                 PollIntervalMs = 1000,
-                RestartOnIdle = true,
-                RestartOnFocusLost = true,
-                MinimizeTourBoxAfterRestart = true,
+                StopOnIdle = true,
+                StopOnFocusLost = true,
+                MinimizeTourBoxAfterStart = true,
                 ConfigFilePath = configPath,
                 LogFilePath = logPath
             };
@@ -481,17 +536,20 @@ namespace TourBoxConsolePatch
             {
                 PollIntervalMs = ParseInt(value, PollIntervalMs);
             }
-            else if (key.Equals("RestartOnIdle", StringComparison.OrdinalIgnoreCase))
+            else if (key.Equals("StopOnIdle", StringComparison.OrdinalIgnoreCase) ||
+                     key.Equals("RestartOnIdle", StringComparison.OrdinalIgnoreCase))
             {
-                RestartOnIdle = ParseBool(value, RestartOnIdle);
+                StopOnIdle = ParseBool(value, StopOnIdle);
             }
-            else if (key.Equals("RestartOnFocusLost", StringComparison.OrdinalIgnoreCase))
+            else if (key.Equals("StopOnFocusLost", StringComparison.OrdinalIgnoreCase) ||
+                     key.Equals("RestartOnFocusLost", StringComparison.OrdinalIgnoreCase))
             {
-                RestartOnFocusLost = ParseBool(value, RestartOnFocusLost);
+                StopOnFocusLost = ParseBool(value, StopOnFocusLost);
             }
-            else if (key.Equals("MinimizeTourBoxAfterRestart", StringComparison.OrdinalIgnoreCase))
+            else if (key.Equals("MinimizeTourBoxAfterStart", StringComparison.OrdinalIgnoreCase) ||
+                     key.Equals("MinimizeTourBoxAfterRestart", StringComparison.OrdinalIgnoreCase))
             {
-                MinimizeTourBoxAfterRestart = ParseBool(value, MinimizeTourBoxAfterRestart);
+                MinimizeTourBoxAfterStart = ParseBool(value, MinimizeTourBoxAfterStart);
             }
             else if (key.Equals("LogFilePath", StringComparison.OrdinalIgnoreCase))
             {
@@ -509,9 +567,9 @@ namespace TourBoxConsolePatch
                 "IdleSeconds=" + IdleSeconds + "\r\n" +
                 "FocusLostDelaySeconds=" + FocusLostDelaySeconds + "\r\n" +
                 "PollIntervalMs=" + PollIntervalMs + "\r\n" +
-                "RestartOnIdle=" + RestartOnIdle + "\r\n" +
-                "RestartOnFocusLost=" + RestartOnFocusLost + "\r\n" +
-                "MinimizeTourBoxAfterRestart=" + MinimizeTourBoxAfterRestart + "\r\n" +
+                "StopOnIdle=" + StopOnIdle + "\r\n" +
+                "StopOnFocusLost=" + StopOnFocusLost + "\r\n" +
+                "MinimizeTourBoxAfterStart=" + MinimizeTourBoxAfterStart + "\r\n" +
                 "LogFilePath=" + LogFilePath + "\r\n";
         }
 
