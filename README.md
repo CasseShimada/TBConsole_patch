@@ -58,8 +58,11 @@ FocusLostDelaySeconds=5
 PollIntervalMs=1000
 RestartOnIdle=True
 RestartOnFocusLost=True
+MinimizeTourBoxAfterRestart=True
 LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
+
+`MinimizeTourBoxAfterRestart=True` 表示工具重启 TourBox Console 后，会自动把 TourBox Console 窗口最小化到任务栏。
 
 修改配置后，需要退出并重新打开 `TourBoxConsolePatch.exe`。
 

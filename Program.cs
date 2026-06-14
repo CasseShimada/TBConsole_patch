@@ -210,7 +210,7 @@ namespace TourBoxConsolePatch
                     StopProcess(process);
                 }
 
-                Process.Start(new ProcessStartInfo
+                var startedProcess = Process.Start(new ProcessStartInfo
                 {
                     FileName = _config.TourBoxPath,
                     WorkingDirectory = Path.GetDirectoryName(_config.TourBoxPath),
@@ -218,11 +218,75 @@ namespace TourBoxConsolePatch
                 });
 
                 Logger.Write("TourBox Console launched.");
+
+                if (_config.MinimizeTourBoxAfterRestart)
+                {
+                    MinimizeTourBoxWhenReady(startedProcess);
+                }
             }
             catch (Exception ex)
             {
                 Logger.Write("Restart failed: " + ex);
             }
+        }
+
+        private void MinimizeTourBoxWhenReady(Process startedProcess)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    for (var attempt = 0; attempt < 50; attempt++)
+                    {
+                        var process = ResolveTourBoxProcess(startedProcess);
+                        if (process != null)
+                        {
+                            using (process)
+                            {
+                                process.Refresh();
+                                if (process.MainWindowHandle != IntPtr.Zero)
+                                {
+                                    NativeMethods.MinimizeWindow(process.MainWindowHandle);
+                                    Logger.Write("TourBox Console minimized after restart.");
+                                    return;
+                                }
+                            }
+                        }
+
+                        Thread.Sleep(200);
+                    }
+
+                    Logger.Write("TourBox Console window was not found for minimization.");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("Minimize failed: " + ex.Message);
+                }
+            });
+        }
+
+        private Process ResolveTourBoxProcess(Process startedProcess)
+        {
+            if (startedProcess != null)
+            {
+                try
+                {
+                    if (!startedProcess.HasExited)
+                    {
+                        return Process.GetProcessById(startedProcess.Id);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            foreach (var process in FindProcessesByPath(_config.TourBoxPath))
+            {
+                return process;
+            }
+
+            return null;
         }
 
         private void ResetClipStudioSession()
@@ -332,6 +396,7 @@ namespace TourBoxConsolePatch
         public int PollIntervalMs { get; private set; }
         public bool RestartOnIdle { get; private set; }
         public bool RestartOnFocusLost { get; private set; }
+        public bool MinimizeTourBoxAfterRestart { get; private set; }
         public string ConfigFilePath { get; private set; }
         public string LogFilePath { get; private set; }
 
@@ -388,6 +453,7 @@ namespace TourBoxConsolePatch
                 PollIntervalMs = 1000,
                 RestartOnIdle = true,
                 RestartOnFocusLost = true,
+                MinimizeTourBoxAfterRestart = true,
                 ConfigFilePath = configPath,
                 LogFilePath = logPath
             };
@@ -423,6 +489,10 @@ namespace TourBoxConsolePatch
             {
                 RestartOnFocusLost = ParseBool(value, RestartOnFocusLost);
             }
+            else if (key.Equals("MinimizeTourBoxAfterRestart", StringComparison.OrdinalIgnoreCase))
+            {
+                MinimizeTourBoxAfterRestart = ParseBool(value, MinimizeTourBoxAfterRestart);
+            }
             else if (key.Equals("LogFilePath", StringComparison.OrdinalIgnoreCase))
             {
                 LogFilePath = Environment.ExpandEnvironmentVariables(value);
@@ -441,6 +511,7 @@ namespace TourBoxConsolePatch
                 "PollIntervalMs=" + PollIntervalMs + "\r\n" +
                 "RestartOnIdle=" + RestartOnIdle + "\r\n" +
                 "RestartOnFocusLost=" + RestartOnFocusLost + "\r\n" +
+                "MinimizeTourBoxAfterRestart=" + MinimizeTourBoxAfterRestart + "\r\n" +
                 "LogFilePath=" + LogFilePath + "\r\n";
         }
 
@@ -536,6 +607,19 @@ namespace TourBoxConsolePatch
 
         [DllImport("user32.dll")]
         private static extern bool GetLastInputInfo(ref LastInputInfo plii);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SwMinimize = 6;
+
+        public static void MinimizeWindow(IntPtr handle)
+        {
+            if (handle != IntPtr.Zero)
+            {
+                ShowWindow(handle, SwMinimize);
+            }
+        }
 
         public static string GetForegroundProcessPath()
         {
