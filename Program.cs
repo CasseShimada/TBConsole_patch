@@ -56,7 +56,7 @@ namespace TourBoxConsolePatch
 
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application,
                 Text = "TourBox Console Patch",
                 ContextMenuStrip = menu,
                 Visible = true

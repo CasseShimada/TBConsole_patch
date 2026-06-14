@@ -24,6 +24,8 @@ dist\TourBoxConsolePatch.exe
 
 双击即可运行。运行后会出现在系统托盘区。
 
+程序图标来自 `assets/icon.png`，构建时会嵌入 `assets/app.ico`。
+
 ## 开机自启
 
 运行：

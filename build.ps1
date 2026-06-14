@@ -6,6 +6,7 @@ $exePath = Join-Path $outDir "TourBoxConsolePatch.exe"
 $sourcePath = Join-Path $root "Program.cs"
 $assemblyInfoPath = Join-Path $root "AssemblyInfo.cs"
 $manifestPath = Join-Path $root "app.manifest"
+$iconPath = Join-Path $root "assets\app.ico"
 
 $cscCandidates = @(
     "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
@@ -26,6 +27,7 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     /platform:anycpu `
     /codepage:65001 `
     /win32manifest:$manifestPath `
+    /win32icon:$iconPath `
     /out:$exePath `
     /reference:System.dll `
     /reference:System.Core.dll `
