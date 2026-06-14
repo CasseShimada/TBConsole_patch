@@ -102,7 +102,9 @@ namespace TourBoxConsolePatch
         private readonly AppConfig _config;
         private readonly System.Threading.Timer _timer;
         private DateTime? _focusLostSinceUtc;
+        private DateTime? _clipStudioForegroundSinceUtc;
         private bool _clipStudioSessionActive;
+        private bool _clipStudioWasForeground;
         private bool _tourBoxPausedByPatch;
         private bool _disposed;
         private int _tickRunning;
@@ -155,10 +157,21 @@ namespace TourBoxConsolePatch
 
                 if (clipStudioIsForeground)
                 {
+                    if (!_clipStudioWasForeground)
+                    {
+                        _clipStudioWasForeground = true;
+                        _clipStudioForegroundSinceUtc = DateTime.UtcNow;
+                        StartTourBox("Clip Studio Paint became foreground");
+                    }
+
                     _clipStudioSessionActive = true;
                     _focusLostSinceUtc = null;
 
                     var idleSeconds = NativeMethods.GetSystemIdleTime().TotalSeconds;
+                    var foregroundSeconds = _clipStudioForegroundSinceUtc.HasValue
+                        ? (DateTime.UtcNow - _clipStudioForegroundSinceUtc.Value).TotalSeconds
+                        : 0;
+
                     if (_tourBoxPausedByPatch)
                     {
                         if (idleSeconds < Math.Max(1, _config.IdleSeconds))
@@ -169,13 +182,18 @@ namespace TourBoxConsolePatch
                         return;
                     }
 
-                    if (_config.StopOnIdle && idleSeconds >= Math.Max(1, _config.IdleSeconds))
+                    if (_config.StopOnIdle &&
+                        foregroundSeconds >= Math.Max(1, _config.ForegroundGraceSeconds) &&
+                        idleSeconds >= Math.Max(1, _config.IdleSeconds))
                     {
                         StopTourBox("Clip Studio Paint idle for " + (int)idleSeconds + " seconds", true);
                     }
 
                     return;
                 }
+
+                _clipStudioWasForeground = false;
+                _clipStudioForegroundSinceUtc = null;
 
                 if (!_tourBoxPausedByPatch && _config.StopOnFocusLost && _clipStudioSessionActive)
                 {
@@ -349,7 +367,9 @@ namespace TourBoxConsolePatch
         private void ResetClipStudioSession()
         {
             _clipStudioSessionActive = false;
+            _clipStudioWasForeground = false;
             _focusLostSinceUtc = null;
+            _clipStudioForegroundSinceUtc = null;
         }
 
         private static bool IsProcessRunningFromPath(string expectedPath)
@@ -447,6 +467,7 @@ namespace TourBoxConsolePatch
         public string TourBoxPath { get; private set; }
         public string ClipStudioPath { get; private set; }
         public int IdleSeconds { get; private set; }
+        public int ForegroundGraceSeconds { get; private set; }
         public int FocusLostDelaySeconds { get; private set; }
         public int PollIntervalMs { get; private set; }
         public bool StopOnIdle { get; private set; }
@@ -504,6 +525,7 @@ namespace TourBoxConsolePatch
                 TourBoxPath = @"C:\Program Files\TourBox Console\TourBox Console.exe",
                 ClipStudioPath = @"C:\Program Files\CELSYS\CLIP STUDIO 1.5\CLIP STUDIO PAINT\CLIPStudioPaint.exe",
                 IdleSeconds = 60,
+                ForegroundGraceSeconds = 2,
                 FocusLostDelaySeconds = 5,
                 PollIntervalMs = 1000,
                 StopOnIdle = true,
@@ -527,6 +549,10 @@ namespace TourBoxConsolePatch
             else if (key.Equals("IdleSeconds", StringComparison.OrdinalIgnoreCase))
             {
                 IdleSeconds = ParseInt(value, IdleSeconds);
+            }
+            else if (key.Equals("ForegroundGraceSeconds", StringComparison.OrdinalIgnoreCase))
+            {
+                ForegroundGraceSeconds = ParseInt(value, ForegroundGraceSeconds);
             }
             else if (key.Equals("FocusLostDelaySeconds", StringComparison.OrdinalIgnoreCase))
             {
@@ -565,6 +591,7 @@ namespace TourBoxConsolePatch
                 "TourBoxPath=" + TourBoxPath + "\r\n" +
                 "ClipStudioPath=" + ClipStudioPath + "\r\n" +
                 "IdleSeconds=" + IdleSeconds + "\r\n" +
+                "ForegroundGraceSeconds=" + ForegroundGraceSeconds + "\r\n" +
                 "FocusLostDelaySeconds=" + FocusLostDelaySeconds + "\r\n" +
                 "PollIntervalMs=" + PollIntervalMs + "\r\n" +
                 "StopOnIdle=" + StopOnIdle + "\r\n" +

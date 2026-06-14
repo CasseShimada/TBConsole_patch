@@ -6,7 +6,8 @@
 
 - 当 `CLIPStudioPaint.exe` 正在前台并且你 60 秒没有操作键盘/鼠标时，关闭 TourBox Console。
 - 当你曾经切到 Clip Studio Paint，之后 Clip Studio Paint 失去焦点超过 5 秒时，关闭 TourBox Console。
-- 当你重新切回 Clip Studio Paint 并恢复键盘/鼠标操作后，再启动 TourBox Console。
+- 当你切回 Clip Studio Paint 时，会确保 TourBox Console 已启动。
+- 刚切回 Clip Studio Paint 后有 2 秒宽限，不会因为系统之前已经空闲很久而立刻关闭 TourBox Console。
 - 启动 TourBox Console 后会自动最小化到任务栏。
 
 ## 生成程序
@@ -55,6 +56,7 @@ dist\TourBoxConsolePatch.ini
 TourBoxPath=C:\Program Files\TourBox Console\TourBox Console.exe
 ClipStudioPath=C:\Program Files\CELSYS\CLIP STUDIO 1.5\CLIP STUDIO PAINT\CLIPStudioPaint.exe
 IdleSeconds=60
+ForegroundGraceSeconds=2
 FocusLostDelaySeconds=5
 PollIntervalMs=1000
 StopOnIdle=True
