@@ -67,6 +67,7 @@ namespace TourBoxConsolePatch
             _notifyIcon.DoubleClick += delegate { _worker.RestartTourBox("manual tray double click"); };
             _notifyIcon.ShowBalloonTip(2500, "TourBox Console Patch",
                 "双击托盘图标即可重启 TourBox Console。", ToolTipIcon.Info);
+
         }
 
         protected override void ExitThreadCore()
@@ -165,10 +166,6 @@ namespace TourBoxConsolePatch
                 if (IsProcessRunningFromPath(_config.TourBoxPath))
                 {
                     Logger.Write("TourBox Console already running. Reason: " + reason);
-                    if (_config.HideTourBoxWindowAfterStart)
-                    {
-                        HideTourBoxWindowWhenReady(null);
-                    }
                     return;
                 }
 
@@ -182,75 +179,11 @@ namespace TourBoxConsolePatch
                 });
 
                 Logger.Write("TourBox Console launched.");
-
-                if (_config.HideTourBoxWindowAfterStart)
-                {
-                    HideTourBoxWindowWhenReady(startedProcess);
-                }
             }
             catch (Exception ex)
             {
                 Logger.Write("Start failed: " + ex);
             }
-        }
-
-        private void HideTourBoxWindowWhenReady(Process startedProcess)
-        {
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                try
-                {
-                    for (var attempt = 0; attempt < 100; attempt++)
-                    {
-                        var process = ResolveTourBoxProcess(startedProcess);
-                        if (process != null)
-                        {
-                            using (process)
-                            {
-                                process.Refresh();
-                                var hiddenCount = NativeMethods.HideVisibleTopLevelWindowsForProcess(process.Id);
-                                if (hiddenCount > 0)
-                                {
-                                    Logger.Write("TourBox Console hidden window count after start: " + hiddenCount + ".");
-                                    return;
-                                }
-                            }
-                        }
-
-                        Thread.Sleep(200);
-                    }
-
-                    Logger.Write("TourBox Console window was not found to hide.");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Write("Hide window failed: " + ex.Message);
-                }
-            });
-        }
-
-        private Process ResolveTourBoxProcess(Process startedProcess)
-        {
-            if (startedProcess != null)
-            {
-                try
-                {
-                    if (!startedProcess.HasExited)
-                    {
-                        return Process.GetProcessById(startedProcess.Id);
-                    }
-                }
-                catch
-                {
-                }
-            }
-
-            foreach (var process in FindProcessesByPath(_config.TourBoxPath))
-            {
-                return process;
-            }
-
-            return null;
         }
 
         private static bool IsProcessRunningFromPath(string expectedPath)
@@ -346,7 +279,6 @@ namespace TourBoxConsolePatch
     internal sealed class AppConfig
     {
         public string TourBoxPath { get; private set; }
-        public bool HideTourBoxWindowAfterStart { get; private set; }
         public string ConfigFilePath { get; private set; }
         public string LogFilePath { get; private set; }
 
@@ -397,7 +329,6 @@ namespace TourBoxConsolePatch
             return new AppConfig
             {
                 TourBoxPath = @"C:\Program Files\TourBox Console\TourBox Console.exe",
-                HideTourBoxWindowAfterStart = true,
                 ConfigFilePath = configPath,
                 LogFilePath = logPath
             };
@@ -408,12 +339,6 @@ namespace TourBoxConsolePatch
             if (key.Equals("TourBoxPath", StringComparison.OrdinalIgnoreCase))
             {
                 TourBoxPath = value;
-            }
-            else if (key.Equals("HideTourBoxWindowAfterStart", StringComparison.OrdinalIgnoreCase) ||
-                     key.Equals("MinimizeTourBoxAfterStart", StringComparison.OrdinalIgnoreCase) ||
-                     key.Equals("MinimizeTourBoxAfterRestart", StringComparison.OrdinalIgnoreCase))
-            {
-                HideTourBoxWindowAfterStart = ParseBool(value, HideTourBoxWindowAfterStart);
             }
             else if (key.Equals("LogFilePath", StringComparison.OrdinalIgnoreCase))
             {
@@ -427,7 +352,6 @@ namespace TourBoxConsolePatch
                 "# TourBox Console Patch configuration\r\n" +
                 "# Changes take effect after restarting this patch program.\r\n" +
                 "TourBoxPath=" + TourBoxPath + "\r\n" +
-                "HideTourBoxWindowAfterStart=" + HideTourBoxWindowAfterStart + "\r\n" +
                 "LogFilePath=" + LogFilePath + "\r\n";
         }
 
@@ -506,42 +430,4 @@ namespace TourBoxConsolePatch
         }
     }
 
-    internal static class NativeMethods
-    {
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-
-        private const int SwHide = 0;
-
-        public static int HideVisibleTopLevelWindowsForProcess(int processId)
-        {
-            var hiddenCount = 0;
-            EnumWindows(delegate(IntPtr handle, IntPtr parameter)
-            {
-                uint windowProcessId;
-                GetWindowThreadProcessId(handle, out windowProcessId);
-
-                if (windowProcessId == processId && IsWindowVisible(handle))
-                {
-                    ShowWindow(handle, SwHide);
-                    hiddenCount++;
-                }
-
-                return true;
-            }, IntPtr.Zero);
-
-            return hiddenCount;
-        }
-    }
 }

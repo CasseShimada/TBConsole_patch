@@ -6,7 +6,8 @@
 
 - 双击托盘图标：重启 TourBox Console。
 - 右键托盘图标：可以启动、关闭、重启 TourBox Console，或打开配置和日志。
-- 启动 TourBox Console 后会自动隐藏主窗口，不在底部任务栏显示，只保留 TourBox 自己的托盘图标。
+- 不会自动监控 Clip Studio Paint。
+- 不会隐藏、最小化或修改 TourBox Console 主窗口。
 
 ## 生成程序
 
@@ -52,11 +53,8 @@ dist\TourBoxConsolePatch.ini
 
 ```ini
 TourBoxPath=C:\Program Files\TourBox Console\TourBox Console.exe
-HideTourBoxWindowAfterStart=True
 LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
-
-`HideTourBoxWindowAfterStart=True` 表示工具启动 TourBox Console 后，会自动隐藏 TourBox Console 主窗口，只保留它自己的托盘图标。
 
 修改配置后，需要退出并重新打开 `TourBoxConsolePatch.exe`。
 
