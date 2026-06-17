@@ -279,6 +279,10 @@ namespace TourBoxConsolePatch
                 {
                     _tourBoxPausedByPatch = false;
                     Logger.Write("TourBox Console already running. Reason: " + reason);
+                    if (_config.HideTourBoxWindowAfterStart)
+                    {
+                        HideTourBoxWindowWhenReady(null);
+                    }
                     return;
                 }
 
@@ -294,9 +298,9 @@ namespace TourBoxConsolePatch
                 _tourBoxPausedByPatch = false;
                 Logger.Write("TourBox Console launched.");
 
-                if (_config.MinimizeTourBoxAfterStart)
+                if (_config.HideTourBoxWindowAfterStart)
                 {
-                    MinimizeTourBoxWhenReady(startedProcess);
+                    HideTourBoxWindowWhenReady(startedProcess);
                 }
             }
             catch (Exception ex)
@@ -305,7 +309,7 @@ namespace TourBoxConsolePatch
             }
         }
 
-        private void MinimizeTourBoxWhenReady(Process startedProcess)
+        private void HideTourBoxWindowWhenReady(Process startedProcess)
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -321,8 +325,8 @@ namespace TourBoxConsolePatch
                                 process.Refresh();
                                 if (process.MainWindowHandle != IntPtr.Zero)
                                 {
-                                    NativeMethods.MinimizeWindow(process.MainWindowHandle);
-                                    Logger.Write("TourBox Console minimized after start.");
+                                    NativeMethods.HideWindow(process.MainWindowHandle);
+                                    Logger.Write("TourBox Console window hidden after start.");
                                     return;
                                 }
                             }
@@ -331,11 +335,11 @@ namespace TourBoxConsolePatch
                         Thread.Sleep(200);
                     }
 
-                    Logger.Write("TourBox Console window was not found for minimization.");
+                    Logger.Write("TourBox Console window was not found to hide.");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Write("Minimize failed: " + ex.Message);
+                    Logger.Write("Hide window failed: " + ex.Message);
                 }
             });
         }
@@ -472,7 +476,7 @@ namespace TourBoxConsolePatch
         public int PollIntervalMs { get; private set; }
         public bool StopOnIdle { get; private set; }
         public bool StopOnFocusLost { get; private set; }
-        public bool MinimizeTourBoxAfterStart { get; private set; }
+        public bool HideTourBoxWindowAfterStart { get; private set; }
         public string ConfigFilePath { get; private set; }
         public string LogFilePath { get; private set; }
 
@@ -530,7 +534,7 @@ namespace TourBoxConsolePatch
                 PollIntervalMs = 1000,
                 StopOnIdle = true,
                 StopOnFocusLost = true,
-                MinimizeTourBoxAfterStart = true,
+                HideTourBoxWindowAfterStart = true,
                 ConfigFilePath = configPath,
                 LogFilePath = logPath
             };
@@ -572,10 +576,11 @@ namespace TourBoxConsolePatch
             {
                 StopOnFocusLost = ParseBool(value, StopOnFocusLost);
             }
-            else if (key.Equals("MinimizeTourBoxAfterStart", StringComparison.OrdinalIgnoreCase) ||
+            else if (key.Equals("HideTourBoxWindowAfterStart", StringComparison.OrdinalIgnoreCase) ||
+                     key.Equals("MinimizeTourBoxAfterStart", StringComparison.OrdinalIgnoreCase) ||
                      key.Equals("MinimizeTourBoxAfterRestart", StringComparison.OrdinalIgnoreCase))
             {
-                MinimizeTourBoxAfterStart = ParseBool(value, MinimizeTourBoxAfterStart);
+                HideTourBoxWindowAfterStart = ParseBool(value, HideTourBoxWindowAfterStart);
             }
             else if (key.Equals("LogFilePath", StringComparison.OrdinalIgnoreCase))
             {
@@ -596,7 +601,7 @@ namespace TourBoxConsolePatch
                 "PollIntervalMs=" + PollIntervalMs + "\r\n" +
                 "StopOnIdle=" + StopOnIdle + "\r\n" +
                 "StopOnFocusLost=" + StopOnFocusLost + "\r\n" +
-                "MinimizeTourBoxAfterStart=" + MinimizeTourBoxAfterStart + "\r\n" +
+                "HideTourBoxWindowAfterStart=" + HideTourBoxWindowAfterStart + "\r\n" +
                 "LogFilePath=" + LogFilePath + "\r\n";
         }
 
@@ -696,13 +701,13 @@ namespace TourBoxConsolePatch
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-        private const int SwMinimize = 6;
+        private const int SwHide = 0;
 
-        public static void MinimizeWindow(IntPtr handle)
+        public static void HideWindow(IntPtr handle)
         {
             if (handle != IntPtr.Zero)
             {
-                ShowWindow(handle, SwMinimize);
+                ShowWindow(handle, SwHide);
             }
         }
 

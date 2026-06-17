@@ -8,7 +8,7 @@
 - 当你曾经切到 Clip Studio Paint，之后 Clip Studio Paint 失去焦点超过 5 秒时，关闭 TourBox Console。
 - 当你切回 Clip Studio Paint 时，会确保 TourBox Console 已启动。
 - 刚切回 Clip Studio Paint 后有 2 秒宽限，不会因为系统之前已经空闲很久而立刻关闭 TourBox Console。
-- 启动 TourBox Console 后会自动最小化到任务栏。
+- 启动 TourBox Console 后会自动隐藏主窗口，不在底部任务栏显示，只保留 TourBox 自己的托盘图标。
 
 ## 生成程序
 
@@ -61,11 +61,11 @@ FocusLostDelaySeconds=5
 PollIntervalMs=1000
 StopOnIdle=True
 StopOnFocusLost=True
-MinimizeTourBoxAfterStart=True
+HideTourBoxWindowAfterStart=True
 LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
 
-`MinimizeTourBoxAfterStart=True` 表示工具启动 TourBox Console 后，会自动把 TourBox Console 窗口最小化到任务栏。
+`HideTourBoxWindowAfterStart=True` 表示工具启动 TourBox Console 后，会自动隐藏 TourBox Console 主窗口，只保留它自己的托盘图标。
 
 修改配置后，需要退出并重新打开 `TourBoxConsolePatch.exe`。
 
