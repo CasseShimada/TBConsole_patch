@@ -50,7 +50,7 @@ namespace TourBoxConsolePatch
             var menu = new ContextMenuStrip();
             menu.Items.Add("立即重启 TourBox Console", null, delegate { _worker.RestartTourBox("manual tray action"); });
             menu.Items.Add("启动 TourBox Console", null, delegate { _worker.StartTourBox("manual tray action"); });
-            menu.Items.Add("关闭 TourBox Console", null, delegate { _worker.StopTourBox("manual tray action", false); });
+            menu.Items.Add("关闭 TourBox Console", null, delegate { _worker.StopTourBox("manual tray action"); });
             menu.Items.Add("打开配置文件", null, delegate { OpenPath(_config.ConfigFilePath); });
             menu.Items.Add("打开日志", null, delegate { OpenPath(_config.LogFilePath); });
             menu.Items.Add(new ToolStripSeparator());
@@ -64,11 +64,9 @@ namespace TourBoxConsolePatch
                 Visible = true
             };
 
-            _notifyIcon.DoubleClick += delegate { OpenPath(_config.ConfigFilePath); };
+            _notifyIcon.DoubleClick += delegate { _worker.RestartTourBox("manual tray double click"); };
             _notifyIcon.ShowBalloonTip(2500, "TourBox Console Patch",
-                "正在监控 Clip Studio Paint，并会按配置暂停/恢复 TourBox Console。", ToolTipIcon.Info);
-
-            _worker.Start();
+                "双击托盘图标即可重启 TourBox Console。", ToolTipIcon.Info);
         }
 
         protected override void ExitThreadCore()
@@ -100,131 +98,25 @@ namespace TourBoxConsolePatch
     internal sealed class MonitorWorker : IDisposable
     {
         private readonly AppConfig _config;
-        private readonly System.Threading.Timer _timer;
-        private DateTime? _focusLostSinceUtc;
-        private DateTime? _clipStudioForegroundSinceUtc;
-        private bool _clipStudioSessionActive;
-        private bool _clipStudioWasForeground;
-        private bool _tourBoxPausedByPatch;
-        private bool _disposed;
-        private int _tickRunning;
 
         public MonitorWorker(AppConfig config)
         {
             _config = config;
-            _timer = new System.Threading.Timer(Tick, null, Timeout.Infinite, Timeout.Infinite);
         }
 
         public void Start()
         {
-            _timer.Change(1000, Math.Max(500, _config.PollIntervalMs));
         }
 
         public void Dispose()
         {
-            _disposed = true;
-            _timer.Dispose();
-        }
-
-        private void Tick(object state)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (Interlocked.Exchange(ref _tickRunning, 1) == 1)
-            {
-                return;
-            }
-
-            try
-            {
-                if (!File.Exists(_config.ClipStudioPath))
-                {
-                    Logger.Write("Clip Studio Paint path does not exist: " + _config.ClipStudioPath);
-                    return;
-                }
-
-                if (!IsProcessRunningFromPath(_config.ClipStudioPath))
-                {
-                    ResetClipStudioSession();
-                    return;
-                }
-
-                var foregroundPath = NativeMethods.GetForegroundProcessPath();
-                var clipStudioIsForeground = PathsEqual(foregroundPath, _config.ClipStudioPath);
-
-                if (clipStudioIsForeground)
-                {
-                    if (!_clipStudioWasForeground)
-                    {
-                        _clipStudioWasForeground = true;
-                        _clipStudioForegroundSinceUtc = DateTime.UtcNow;
-                        StartTourBox("Clip Studio Paint became foreground");
-                    }
-
-                    _clipStudioSessionActive = true;
-                    _focusLostSinceUtc = null;
-
-                    var idleSeconds = NativeMethods.GetSystemIdleTime().TotalSeconds;
-                    var foregroundSeconds = _clipStudioForegroundSinceUtc.HasValue
-                        ? (DateTime.UtcNow - _clipStudioForegroundSinceUtc.Value).TotalSeconds
-                        : 0;
-
-                    if (_tourBoxPausedByPatch)
-                    {
-                        if (idleSeconds < Math.Max(1, _config.IdleSeconds))
-                        {
-                            StartTourBox("Clip Studio Paint activity resumed");
-                        }
-
-                        return;
-                    }
-
-                    if (_config.StopOnIdle &&
-                        foregroundSeconds >= Math.Max(1, _config.ForegroundGraceSeconds) &&
-                        idleSeconds >= Math.Max(1, _config.IdleSeconds))
-                    {
-                        StopTourBox("Clip Studio Paint idle for " + (int)idleSeconds + " seconds", true);
-                    }
-
-                    return;
-                }
-
-                _clipStudioWasForeground = false;
-                _clipStudioForegroundSinceUtc = null;
-
-                if (!_tourBoxPausedByPatch && _config.StopOnFocusLost && _clipStudioSessionActive)
-                {
-                    if (!_focusLostSinceUtc.HasValue)
-                    {
-                        _focusLostSinceUtc = DateTime.UtcNow;
-                    }
-
-                    var lostSeconds = (DateTime.UtcNow - _focusLostSinceUtc.Value).TotalSeconds;
-                    if (lostSeconds >= Math.Max(0, _config.FocusLostDelaySeconds))
-                    {
-                        StopTourBox("Clip Studio Paint lost focus for " + (int)lostSeconds + " seconds", true);
-                        _focusLostSinceUtc = null;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Write("Monitor error: " + ex);
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _tickRunning, 0);
-            }
         }
 
         public void RestartTourBox(string reason)
         {
             try
             {
-                StopTourBox(reason, false);
+                StopTourBox(reason);
                 StartTourBox(reason);
             }
             catch (Exception ex)
@@ -233,7 +125,7 @@ namespace TourBoxConsolePatch
             }
         }
 
-        public bool StopTourBox(string reason, bool resumeOnActivity)
+        public bool StopTourBox(string reason)
         {
             try
             {
@@ -246,12 +138,7 @@ namespace TourBoxConsolePatch
                     StopProcess(process);
                 }
 
-                if (stoppedAny && resumeOnActivity)
-                {
-                    _tourBoxPausedByPatch = true;
-                    Logger.Write("TourBox Console paused until Clip Studio Paint activity resumes.");
-                }
-                else if (!stoppedAny)
+                if (!stoppedAny)
                 {
                     Logger.Write("TourBox Console was not running.");
                 }
@@ -277,7 +164,6 @@ namespace TourBoxConsolePatch
 
                 if (IsProcessRunningFromPath(_config.TourBoxPath))
                 {
-                    _tourBoxPausedByPatch = false;
                     Logger.Write("TourBox Console already running. Reason: " + reason);
                     if (_config.HideTourBoxWindowAfterStart)
                     {
@@ -295,7 +181,6 @@ namespace TourBoxConsolePatch
                     UseShellExecute = true
                 });
 
-                _tourBoxPausedByPatch = false;
                 Logger.Write("TourBox Console launched.");
 
                 if (_config.HideTourBoxWindowAfterStart)
@@ -366,14 +251,6 @@ namespace TourBoxConsolePatch
             }
 
             return null;
-        }
-
-        private void ResetClipStudioSession()
-        {
-            _clipStudioSessionActive = false;
-            _clipStudioWasForeground = false;
-            _focusLostSinceUtc = null;
-            _clipStudioForegroundSinceUtc = null;
         }
 
         private static bool IsProcessRunningFromPath(string expectedPath)
@@ -469,13 +346,6 @@ namespace TourBoxConsolePatch
     internal sealed class AppConfig
     {
         public string TourBoxPath { get; private set; }
-        public string ClipStudioPath { get; private set; }
-        public int IdleSeconds { get; private set; }
-        public int ForegroundGraceSeconds { get; private set; }
-        public int FocusLostDelaySeconds { get; private set; }
-        public int PollIntervalMs { get; private set; }
-        public bool StopOnIdle { get; private set; }
-        public bool StopOnFocusLost { get; private set; }
         public bool HideTourBoxWindowAfterStart { get; private set; }
         public string ConfigFilePath { get; private set; }
         public string LogFilePath { get; private set; }
@@ -527,13 +397,6 @@ namespace TourBoxConsolePatch
             return new AppConfig
             {
                 TourBoxPath = @"C:\Program Files\TourBox Console\TourBox Console.exe",
-                ClipStudioPath = @"C:\Program Files\CELSYS\CLIP STUDIO 1.5\CLIP STUDIO PAINT\CLIPStudioPaint.exe",
-                IdleSeconds = 60,
-                ForegroundGraceSeconds = 2,
-                FocusLostDelaySeconds = 5,
-                PollIntervalMs = 1000,
-                StopOnIdle = true,
-                StopOnFocusLost = true,
                 HideTourBoxWindowAfterStart = true,
                 ConfigFilePath = configPath,
                 LogFilePath = logPath
@@ -545,36 +408,6 @@ namespace TourBoxConsolePatch
             if (key.Equals("TourBoxPath", StringComparison.OrdinalIgnoreCase))
             {
                 TourBoxPath = value;
-            }
-            else if (key.Equals("ClipStudioPath", StringComparison.OrdinalIgnoreCase))
-            {
-                ClipStudioPath = value;
-            }
-            else if (key.Equals("IdleSeconds", StringComparison.OrdinalIgnoreCase))
-            {
-                IdleSeconds = ParseInt(value, IdleSeconds);
-            }
-            else if (key.Equals("ForegroundGraceSeconds", StringComparison.OrdinalIgnoreCase))
-            {
-                ForegroundGraceSeconds = ParseInt(value, ForegroundGraceSeconds);
-            }
-            else if (key.Equals("FocusLostDelaySeconds", StringComparison.OrdinalIgnoreCase))
-            {
-                FocusLostDelaySeconds = ParseInt(value, FocusLostDelaySeconds);
-            }
-            else if (key.Equals("PollIntervalMs", StringComparison.OrdinalIgnoreCase))
-            {
-                PollIntervalMs = ParseInt(value, PollIntervalMs);
-            }
-            else if (key.Equals("StopOnIdle", StringComparison.OrdinalIgnoreCase) ||
-                     key.Equals("RestartOnIdle", StringComparison.OrdinalIgnoreCase))
-            {
-                StopOnIdle = ParseBool(value, StopOnIdle);
-            }
-            else if (key.Equals("StopOnFocusLost", StringComparison.OrdinalIgnoreCase) ||
-                     key.Equals("RestartOnFocusLost", StringComparison.OrdinalIgnoreCase))
-            {
-                StopOnFocusLost = ParseBool(value, StopOnFocusLost);
             }
             else if (key.Equals("HideTourBoxWindowAfterStart", StringComparison.OrdinalIgnoreCase) ||
                      key.Equals("MinimizeTourBoxAfterStart", StringComparison.OrdinalIgnoreCase) ||
@@ -594,13 +427,6 @@ namespace TourBoxConsolePatch
                 "# TourBox Console Patch configuration\r\n" +
                 "# Changes take effect after restarting this patch program.\r\n" +
                 "TourBoxPath=" + TourBoxPath + "\r\n" +
-                "ClipStudioPath=" + ClipStudioPath + "\r\n" +
-                "IdleSeconds=" + IdleSeconds + "\r\n" +
-                "ForegroundGraceSeconds=" + ForegroundGraceSeconds + "\r\n" +
-                "FocusLostDelaySeconds=" + FocusLostDelaySeconds + "\r\n" +
-                "PollIntervalMs=" + PollIntervalMs + "\r\n" +
-                "StopOnIdle=" + StopOnIdle + "\r\n" +
-                "StopOnFocusLost=" + StopOnFocusLost + "\r\n" +
                 "HideTourBoxWindowAfterStart=" + HideTourBoxWindowAfterStart + "\r\n" +
                 "LogFilePath=" + LogFilePath + "\r\n";
         }
@@ -682,22 +508,6 @@ namespace TourBoxConsolePatch
 
     internal static class NativeMethods
     {
-        [StructLayout(LayoutKind.Sequential)]
-        private struct LastInputInfo
-        {
-            public uint cbSize;
-            public uint dwTime;
-        }
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetLastInputInfo(ref LastInputInfo plii);
-
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -709,49 +519,6 @@ namespace TourBoxConsolePatch
             {
                 ShowWindow(handle, SwHide);
             }
-        }
-
-        public static string GetForegroundProcessPath()
-        {
-            var handle = GetForegroundWindow();
-            if (handle == IntPtr.Zero)
-            {
-                return null;
-            }
-
-            uint processId;
-            GetWindowThreadProcessId(handle, out processId);
-            if (processId == 0)
-            {
-                return null;
-            }
-
-            try
-            {
-                using (var process = Process.GetProcessById((int)processId))
-                {
-                    return process.MainModule.FileName;
-                }
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        public static TimeSpan GetSystemIdleTime()
-        {
-            var info = new LastInputInfo();
-            info.cbSize = (uint)Marshal.SizeOf(typeof(LastInputInfo));
-
-            if (!GetLastInputInfo(ref info))
-            {
-                return TimeSpan.Zero;
-            }
-
-            var tickCount = unchecked((uint)Environment.TickCount);
-            var idleMilliseconds = unchecked(tickCount - info.dwTime);
-            return TimeSpan.FromMilliseconds(idleMilliseconds);
         }
     }
 }

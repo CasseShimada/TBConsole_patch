@@ -1,13 +1,11 @@
 # TourBox Console Patch
 
-这是一个本机后台小工具，用来缓解 TourBox Console 在 Clip Studio Paint 使用场景下失灵的问题。
+这是一个本机托盘小工具，用来手动重启 TourBox Console。
 
 默认行为：
 
-- 当 `CLIPStudioPaint.exe` 正在前台并且你 60 秒没有操作键盘/鼠标时，关闭 TourBox Console。
-- 当你曾经切到 Clip Studio Paint，之后 Clip Studio Paint 失去焦点超过 5 秒时，关闭 TourBox Console。
-- 当你切回 Clip Studio Paint 时，会确保 TourBox Console 已启动。
-- 刚切回 Clip Studio Paint 后有 2 秒宽限，不会因为系统之前已经空闲很久而立刻关闭 TourBox Console。
+- 双击托盘图标：重启 TourBox Console。
+- 右键托盘图标：可以启动、关闭、重启 TourBox Console，或打开配置和日志。
 - 启动 TourBox Console 后会自动隐藏主窗口，不在底部任务栏显示，只保留 TourBox 自己的托盘图标。
 
 ## 生成程序
@@ -54,13 +52,6 @@ dist\TourBoxConsolePatch.ini
 
 ```ini
 TourBoxPath=C:\Program Files\TourBox Console\TourBox Console.exe
-ClipStudioPath=C:\Program Files\CELSYS\CLIP STUDIO 1.5\CLIP STUDIO PAINT\CLIPStudioPaint.exe
-IdleSeconds=60
-ForegroundGraceSeconds=2
-FocusLostDelaySeconds=5
-PollIntervalMs=1000
-StopOnIdle=True
-StopOnFocusLost=True
 HideTourBoxWindowAfterStart=True
 LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
@@ -77,10 +68,6 @@ LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 %LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 ```
 
-## ActivityWatch
-
-此工具没有依赖 ActivityWatch。它直接读取 Windows 当前前台窗口和系统空闲时间，因此即使 ActivityWatch 没有启动也能工作。
-
 ## Windows Defender 和 SmartScreen
 
 这个版本没有数字签名。第一次运行时，Windows 可能会显示未知发布者提醒。
@@ -91,4 +78,4 @@ LogFilePath=%LOCALAPPDATA%\TourBoxConsolePatch\patch.log
 dist\TourBoxConsolePatch.exe
 ```
 
-此工具不会联网，不会注入进程，不会扫描其他目录；它只会读取当前前台窗口、读取系统空闲时间，并在条件满足时关闭或启动配置里的 TourBox Console。
+此工具不会联网，不会注入进程，不会扫描其他目录；它只会在你手动操作托盘图标时启动、关闭或重启配置里的 TourBox Console。
