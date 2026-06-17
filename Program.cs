@@ -200,7 +200,7 @@ namespace TourBoxConsolePatch
             {
                 try
                 {
-                    for (var attempt = 0; attempt < 50; attempt++)
+                    for (var attempt = 0; attempt < 100; attempt++)
                     {
                         var process = ResolveTourBoxProcess(startedProcess);
                         if (process != null)
@@ -208,10 +208,10 @@ namespace TourBoxConsolePatch
                             using (process)
                             {
                                 process.Refresh();
-                                if (process.MainWindowHandle != IntPtr.Zero)
+                                var hiddenCount = NativeMethods.HideVisibleTopLevelWindowsForProcess(process.Id);
+                                if (hiddenCount > 0)
                                 {
-                                    NativeMethods.HideWindow(process.MainWindowHandle);
-                                    Logger.Write("TourBox Console window hidden after start.");
+                                    Logger.Write("TourBox Console hidden window count after start: " + hiddenCount + ".");
                                     return;
                                 }
                             }
@@ -508,17 +508,40 @@ namespace TourBoxConsolePatch
 
     internal static class NativeMethods
     {
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
         private const int SwHide = 0;
 
-        public static void HideWindow(IntPtr handle)
+        public static int HideVisibleTopLevelWindowsForProcess(int processId)
         {
-            if (handle != IntPtr.Zero)
+            var hiddenCount = 0;
+            EnumWindows(delegate(IntPtr handle, IntPtr parameter)
             {
-                ShowWindow(handle, SwHide);
-            }
+                uint windowProcessId;
+                GetWindowThreadProcessId(handle, out windowProcessId);
+
+                if (windowProcessId == processId && IsWindowVisible(handle))
+                {
+                    ShowWindow(handle, SwHide);
+                    hiddenCount++;
+                }
+
+                return true;
+            }, IntPtr.Zero);
+
+            return hiddenCount;
         }
     }
 }
